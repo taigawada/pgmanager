@@ -1,4 +1,4 @@
-FROM golang:1.19.7-alpine AS builder
+FROM golang:1.21.4-alpine AS builder
 
 ENV GOPATH=
 WORKDIR /
