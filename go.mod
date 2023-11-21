@@ -1,4 +1,4 @@
-module postgres_manager
+module pgmanager
 
 go 1.21
 
