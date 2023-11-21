@@ -15,6 +15,6 @@ RUN GOOS=linux GOARCH=arm64 go build -o pgmanager main.go
 FROM arm64v8/alpine:latest
 WORKDIR /bin/pgmanager
 
-COPY --from=builder /pgmanager .
+ENV PATH $PATH:/bin/pgmanager
 
-RUN export PATH="/bin/pgmanager:$PATH"
+COPY --from=builder /pgmanager .
