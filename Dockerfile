@@ -18,3 +18,5 @@ WORKDIR /bin/pgmanager
 ENV PATH $PATH:/bin/pgmanager
 
 COPY --from=builder /pgmanager .
+
+ENTRYPOINT ["tail", "-F", "/dev/null"]
