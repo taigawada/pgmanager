@@ -17,4 +17,4 @@ WORKDIR /bin/pgmanager
 
 COPY --from=builder /pgmanager .
 
-RUN export export PATH="/bin/pgmanager:$PATH"
+RUN export PATH="/bin/pgmanager:$PATH"
