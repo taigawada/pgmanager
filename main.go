@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/pterm/pterm"
 	"github.com/urfave/cli"
 
 	"log"
@@ -35,24 +37,53 @@ func main() {
 
 var createCommand = cli.Command{
 	Name:  "create",
-	Usage: "create database and user",
+	Usage: "Create database and user.",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "prod-only, p",
+			Usage: "Create database only production",
+		},
+	},
 	Action: func(ctx *cli.Context) error {
-		err := create()
+		err := create(ctx.Bool("prod-only"))
 		return err
 	},
 }
 var deleteCommand = cli.Command{
 	Name:  "delete",
-	Usage: "delete database and user",
+	Usage: "Delete database and user.",
 	Action: func(ctx *cli.Context) error {
 		database := ctx.Args().Get(0)
-		err, notfound := Delete(database)
-		if notfound == true {
-			fmt.Printf("User in database '%s' is not found.\n", database)
-			return nil
-		}
+		err := delete(database)
 		return err
 	},
+}
+
+func outputCreate(user string, database string, conStr string, prodOnly bool) {
+	pterm.DefaultSection.WithLevel(0).WithTopPadding(0).Println("Database And User Created:")
+	pterm.DefaultBasicText.Println(fmt.Sprintf("user: %s", pterm.LightMagenta(user)))
+	if prodOnly {
+		pterm.DefaultBasicText.Println(fmt.Sprintf("database(prod): %s", pterm.Cyan(database)))
+	} else {
+		pterm.DefaultBasicText.Println(fmt.Sprintf("database(prod): %s\ndatabase(dev):  %s", pterm.Cyan(database), pterm.Cyan(database+"_dev")))
+	}
+	pterm.DefaultSection.WithTopPadding(0).WithLevel(0).Println("Connection String:")
+	if prodOnly {
+		pterm.DefaultBasicText.Println(fmt.Sprintf("prod: %s", pterm.Cyan(conStr)))
+	} else {
+		pterm.DefaultBasicText.Println(fmt.Sprintf("prod: %s\ndev:  %s", pterm.LightGreen(conStr), pterm.LightGreen(conStr+"_dev")))
+	}
+
+}
+
+func outputDelete(user string, database string, prodOnly bool) {
+	pterm.DefaultSection.WithLevel(0).WithTopPadding(0).Println("Database And User Deleted:")
+	pterm.DefaultBasicText.Println(fmt.Sprintf("user: %s", pterm.LightMagenta(user)))
+	if prodOnly {
+		pterm.DefaultBasicText.Println(fmt.Sprintf("database(prod): %s", pterm.Cyan(database)))
+	} else {
+		pterm.DefaultBasicText.Println(fmt.Sprintf("database(prod): %s\ndatabase(dev):  %s", pterm.Cyan(database), pterm.Cyan(database+"_dev")))
+	}
 }
 
 func openDB() *sql.DB {
@@ -65,7 +96,7 @@ func openDB() *sql.DB {
 	return db
 }
 
-func create() error {
+func create(prodOnly bool) error {
 	db := openDB()
 	database, user, password, conStr := DatabaseUserPassword()
 	err := createUser(db, user, password)
@@ -76,11 +107,17 @@ func create() error {
 	if err != nil {
 		return err
 	}
+	if !prodOnly {
+		err = createDatabase(db, database+"_dev", user)
+		if err != nil {
+			return err
+		}
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		panic(err)
 	}
-	err = updateGrant(tx, database, user)
+	err = updateGrant(tx, database, user, prodOnly)
 	if err != nil {
 		return err
 	}
@@ -88,44 +125,76 @@ func create() error {
 		log.Fatal(err)
 		return err
 	}
-	fmt.Printf("connect uri:\n%s\n", conStr)
 	db.Close()
+	outputCreate(user, database, conStr, prodOnly)
 	return nil
 }
 
-func Delete(database string) (err error, notfound bool) {
+func delete(database string) (err error) {
 	db := openDB()
-	user, err := getUser(db, database)
+	tx, err := db.Begin()
+	if err != nil {
+		panic(err)
+	}
+	if databaseExists := databaseExists(tx, database); !databaseExists {
+		pterm.Error.Printf("Database '%s' not found.\n", database)
+		tx.Commit()
+		return nil
+	}
+	prodOnly := false
+	if databaseExists := databaseExists(tx, database+"_dev"); !databaseExists {
+		prodOnly = true
+	}
+	user, err := getUser(tx, database)
+	tx.Commit()
 	if user == "" {
-		return nil, true
+		pterm.Error.Printf("Cannot find the user who is the owner of database '%s'.", database)
+		return nil
 	}
 	if err != nil {
-		return err, false
+		return err
 	}
 	err = deleteDatabase(db, database)
 	if err != nil {
-		return err, false
+		return err
 	}
-	tx, err := db.Begin()
+	if !prodOnly {
+		err = deleteDatabase(db, database+"_dev")
+		if err != nil {
+			return err
+		}
+	}
+	tx, err = db.Begin()
 	if err != nil {
 		panic(err)
 	}
 	err = revokeUser(tx, user)
 	if err != nil {
 		tx.Rollback()
-		return err, false
+		return err
 	}
 	err = deleteUser(tx, user)
 	if err != nil {
 		tx.Rollback()
-		return err, false
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		log.Fatal(err)
-		return err, false
+		return err
 	}
 	db.Close()
-	return nil, false
+	outputDelete(user, database, prodOnly)
+	return nil
+}
+
+func databaseExists(tx *sql.Tx, database string) bool {
+	queryrow := fmt.Sprintf("SELECT datname FROM pg_catalog.pg_database WHERE lower(datname) = lower('%s');", database)
+	var dbname string
+	err := tx.QueryRow(queryrow).Scan(&dbname)
+	if err != nil {
+		return false
+	}
+	return true
 }
 
 func createDatabase(db *sql.DB, database string, user string) error {
@@ -140,17 +209,22 @@ func createUser(db *sql.DB, user string, password string) error {
 	return err
 }
 
-func getUser(db *sql.DB, database string) (string, error) {
-	groupexists := fmt.Sprintf(`SELECT  pg_catalog.pg_get_userbyid(d.datdba) FROM pg_catalog.pg_database d WHERE d.datname = '%s';`, database)
+func getUser(tx *sql.Tx, database string) (string, error) {
+	groupexists := fmt.Sprintf(`SELECT pg_catalog.pg_get_userbyid(d.datdba) FROM pg_catalog.pg_database d WHERE d.datname = '%s';`, database)
 	var user string
-	err := db.QueryRow(groupexists).Scan(&user)
+	err := tx.QueryRow(groupexists).Scan(&user)
 	if err != nil {
 		return "", err
 	}
 	return user, nil
 }
 
-func updateGrant(tx *sql.Tx, database string, user string) error {
+func updateGrant(tx *sql.Tx, database string, user string, prodOnly bool) error {
+	if !prodOnly {
+		dev := database + "_dev"
+		databases := []string{database, dev}
+		database = strings.Join(databases, ",")
+	}
 	revokeconnect := fmt.Sprintf(`REVOKE CONNECT ON DATABASE %s FROM PUBLIC;`, database)
 	_, err := tx.Exec(revokeconnect)
 	if err != nil {
