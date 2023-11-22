@@ -204,7 +204,7 @@ func createDatabase(db *sql.DB, database string, user string) error {
 }
 
 func createUser(db *sql.DB, user string, password string) error {
-	createuser := fmt.Sprintf(`CREATE USER %s WITH PASSWORD '%s' LOGIN CREATEDB CREATEDB;`, user, password)
+	createuser := fmt.Sprintf(`CREATE USER %s WITH PASSWORD '%s' CREATEDB CREATEROLE;`, user, password)
 	_, err := db.Exec(createuser)
 	return err
 }
