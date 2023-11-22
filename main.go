@@ -59,9 +59,9 @@ var deleteCommand = cli.Command{
 	},
 }
 
-func outputCreate(user string, database string, conStr string, prodOnly bool) {
-	pterm.DefaultSection.WithLevel(0).WithTopPadding(0).Println("Database And User Created:")
-	pterm.DefaultBasicText.Println(fmt.Sprintf("user: %s", pterm.LightMagenta(user)))
+func outputCreate(user string, database string, password string, conStr string, prodOnly bool) {
+	pterm.DefaultSection.WithLevel(0).WithTopPadding(0).Println("Password And User Successfully Created!")
+	pterm.DefaultBasicText.Println(fmt.Sprintf("user:     %s\npassword: %s", pterm.LightMagenta(user), pterm.Red(password)))
 	if prodOnly {
 		pterm.DefaultBasicText.Println(fmt.Sprintf("database(prod): %s", pterm.Cyan(database)))
 	} else {
@@ -77,7 +77,7 @@ func outputCreate(user string, database string, conStr string, prodOnly bool) {
 }
 
 func outputDelete(user string, database string, prodOnly bool) {
-	pterm.DefaultSection.WithLevel(0).WithTopPadding(0).Println("Database And User Deleted:")
+	pterm.DefaultSection.WithLevel(0).WithTopPadding(0).Println("Password And User Successfully Deleted!")
 	pterm.DefaultBasicText.Println(fmt.Sprintf("user: %s", pterm.LightMagenta(user)))
 	if prodOnly {
 		pterm.DefaultBasicText.Println(fmt.Sprintf("database(prod): %s", pterm.Cyan(database)))
@@ -126,7 +126,7 @@ func create(prodOnly bool) error {
 		return err
 	}
 	db.Close()
-	outputCreate(user, database, conStr, prodOnly)
+	outputCreate(user, database, password, conStr, prodOnly)
 	return nil
 }
 
@@ -204,7 +204,7 @@ func createDatabase(db *sql.DB, database string, user string) error {
 }
 
 func createUser(db *sql.DB, user string, password string) error {
-	createuser := fmt.Sprintf(`CREATE USER %s WITH PASSWORD '%s' LOGIN;`, user, password)
+	createuser := fmt.Sprintf(`CREATE USER %s WITH PASSWORD '%s' LOGIN CREATEDB CREATEDB;`, user, password)
 	_, err := db.Exec(createuser)
 	return err
 }
